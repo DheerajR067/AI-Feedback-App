@@ -1,0 +1,22 @@
+# FastAPI and web framework dependencies
+fastapi==0.116.1
+uvicorn[standard]==0.27.1
+
+# Data processing and manipulation
+pandas==2.3.1
+openpyxl==3.1.5
+
+# Environment and configuration
+python-dotenv==1.0.1
+
+# Data validation and serialization
+pydantic==2.8.2
+
+# CORS middleware
+fastapi-cors==0.0.6
+
+# Together AI SDK for language model integration
+together==0.2.11
+
+# Additional utilities
+python-multipart==0.0.9 
