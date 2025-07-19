@@ -81,8 +81,8 @@ AI-Feedback-App/
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/DheerajR067/legoland-feedback-app.git
-   cd legoland-feedback-app
+   git clone https://github.com/DheerajR067/AI-Feedback-App.git
+   cd AI-Feedback-App
    ```
 
 2. **Backend Setup**
