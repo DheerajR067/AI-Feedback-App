@@ -10,6 +10,7 @@ from openpyxl import Workbook, load_workbook
 import random
 from dotenv import load_dotenv
 import re
+from fastapi.responses import StreamingResponse
 load_dotenv()
 
 app = FastAPI()
@@ -119,16 +120,19 @@ def health_check():
 
 @app.post("/chat")
 def chat_endpoint(req: ChatRequest):
-    """Chat endpoint for processing user messages."""
+    """Chat endpoint for processing user messages with streaming."""
     try:
         from together import Together
     except ImportError:
-        return {"response": "[Error: together SDK not installed on backend. Please install with: pip install together]"}
+        def error_stream():
+            yield "[Error: together SDK not installed on backend. Please install with: pip install together]"
+        return StreamingResponse(error_stream(), media_type="text/plain")
     TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
     if not TOGETHER_API_KEY:
-        return {"response": "[Error: TOGETHER_API_KEY not set in environment]"}
+        def error_stream():
+            yield "[Error: TOGETHER_API_KEY not set in environment]"
+        return StreamingResponse(error_stream(), media_type="text/plain")
     client = Together(api_key=TOGETHER_API_KEY)
-    # Define the strict feedback schema for JSON mode
     feedback_schema = {
         "type": "object",
         "properties": {
@@ -149,19 +153,26 @@ def chat_endpoint(req: ChatRequest):
         },
         "required": ["conversation", "data", "current_question", "is_complete"]
     }
-    try:
-        response = client.chat.completions.create(
-            model="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
-            messages=req.messages,
-            response_format={
-                "type": "json_object",
-                "schema": feedback_schema
-            }
-        )
-        message_content = response.choices[0].message.content
-        return {"response": message_content}
-    except Exception as e:
-        return {"response": f"[Error from Together API: {str(e)}]"}
+    def together_stream():
+        try:
+            response = client.chat.completions.create(
+                model="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+                messages=req.messages,
+                response_format={
+                    "type": "json_object",
+                    "schema": feedback_schema
+                },
+                stream=True
+            )
+            for chunk in response:
+                # Each chunk is a ChatCompletionStreamOutput
+                if hasattr(chunk, "choices") and chunk.choices:
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, "content") and delta.content:
+                        yield delta.content
+        except Exception as e:
+            yield f"[Error from Together API: {str(e)}]"
+    return StreamingResponse(together_stream(), media_type="text/plain")
 
 @app.post("/feedback")
 def feedback_endpoint(req: FeedbackRequest):
@@ -202,3 +213,48 @@ def rag_endpoint(req: RAGRequest):
             return {"context": doc}
     # If no match, return a random doc
     return {"context": random.choice(COMPANY_DOCS)}
+
+@app.post("/voice")
+def voice_endpoint(req: ChatRequest):
+    """Voice endpoint for processing user messages (non-streaming, returns full JSON)."""
+    try:
+        from together import Together
+    except ImportError:
+        return {"response": "[Error: together SDK not installed on backend. Please install with: pip install together]"}
+    TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
+    if not TOGETHER_API_KEY:
+        return {"response": "[Error: TOGETHER_API_KEY not set in environment]"}
+    client = Together(api_key=TOGETHER_API_KEY)
+    feedback_schema = {
+        "type": "object",
+        "properties": {
+            "conversation": {"type": "string", "description": "Conversational message for the user."},
+            "data": {
+                "type": "object",
+                "properties": {
+                    "Q1": {"type": "object", "properties": {"answer": {"type": "string"}, "remark": {"type": "string"}}, "required": ["answer", "remark"]},
+                    "Q2": {"type": "object", "properties": {"answer": {"type": "string"}, "remark": {"type": "string"}}, "required": ["answer", "remark"]},
+                    "Q3": {"type": "object", "properties": {"answer": {"type": "string"}, "remark": {"type": "string"}}, "required": ["answer", "remark"]},
+                    "Q4": {"type": "object", "properties": {"answer": {"type": "string"}, "remark": {"type": "string"}}, "required": ["answer", "remark"]},
+                    "Q5": {"type": "object", "properties": {"answer": {"type": "string"}, "remark": {"type": "string"}}, "required": ["answer", "remark"]}
+                },
+                "required": ["Q1", "Q2", "Q3", "Q4", "Q5"]
+            },
+            "current_question": {"type": "string"},
+            "is_complete": {"type": "boolean"}
+        },
+        "required": ["conversation", "data", "current_question", "is_complete"]
+    }
+    try:
+        response = client.chat.completions.create(
+            model="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+            messages=req.messages,
+            response_format={
+                "type": "json_object",
+                "schema": feedback_schema
+            }
+        )
+        message_content = response.choices[0].message.content
+        return {"response": message_content}
+    except Exception as e:
+        return {"response": f"[Error from Together API: {str(e)}]"}

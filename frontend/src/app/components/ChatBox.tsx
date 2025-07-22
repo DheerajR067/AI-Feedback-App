@@ -71,9 +71,71 @@ const ChatBox: React.FC = () => {
   const [feedbackSaved, setFeedbackSaved] = useState(false);
   const [progress, setProgress] = useState(0);
   const [lastData, setLastData] = useState<any>(null); // store last conversation data for backend
+  const [streamingAssistant, setStreamingAssistant] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const initialAICalled = useRef(false); // Prevent duplicate initial conversation call
+
+  // Start the initial AI message using streaming
+  const startInitialAI = async () => {
+    setLoading(true);
+    setStreamingAssistant(true);
+    // Add a placeholder assistant message for streaming (but don't show raw JSON)
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    let streamedContent = "";
+    try {
+      streamedContent = await APIService.streamAIResponse(
+        [{ role: "system", content: SYSTEM_PROMPT }],
+        (chunk) => {
+          // Do not update the message content with raw JSON while streaming
+        }
+      );
+      // After streaming, parse the full message for JSON and update state
+      let conversation = streamedContent;
+      let conversationData = null;
+      let parseWarning = false;
+      try {
+        const parsed = JSON.parse(streamedContent);
+        if (parsed.conversation) conversation = parsed.conversation;
+        if (parsed.data) conversationData = parsed;
+      } catch (e) {
+        const match = streamedContent.match(/\{[\s\S]*\}/);
+        if (match) {
+          try {
+            const parsed = JSON.parse(match[0]);
+            if (parsed.conversation) conversation = parsed.conversation;
+            if (parsed.data) conversationData = parsed;
+            parseWarning = true;
+          } catch (e2) {
+            parseWarning = true;
+          }
+        } else {
+          parseWarning = true;
+        }
+      }
+      setMessages((prev) => {
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        if (updated[lastIdx]?.role === "assistant") {
+          updated[lastIdx] = {
+            ...updated[lastIdx],
+            content: conversation + (parseWarning ? "\n[Warning: Response was not valid JSON. Displayed best effort.]" : ""),
+            data: conversationData,
+          };
+        }
+        return updated;
+      });
+      if (conversationData) setLastData(conversationData);
+    } catch (err) {
+      console.error("❌ Error getting response (initial AI):", err);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "[Error connecting to backend]" },
+      ]);
+    }
+    setStreamingAssistant(false);
+    setLoading(false);
+  };
 
   // On mount, start the conversation
   useEffect(() => {
@@ -86,7 +148,7 @@ const ChatBox: React.FC = () => {
         hasAssistant: hasAssistant,
         timestamp: new Date().toISOString()
       });
-      getAIResponse([{ role: "system", content: SYSTEM_PROMPT }]);
+      startInitialAI();
     }
     // eslint-disable-next-line
   }, []);
@@ -130,7 +192,7 @@ const ChatBox: React.FC = () => {
     }
   }, [lastData, router, feedbackSaved, messages]);
 
-  // Send user message and get response
+  // Send user message and get response (streaming)
   const sendMessage = async () => {
     if (!input.trim() || loading || feedbackSaved) return;
     const userMsg: Message = { role: "user", content: input };
@@ -138,25 +200,52 @@ const ChatBox: React.FC = () => {
     setMessages(newMessages);
     setInput("");
     setLoading(true);
-    await getAIResponse(newMessages);
-    setLoading(false);
-  };
-
-  // Get response using the API service
-  const getAIResponse = async (msgs: Message[]) => {
+    setStreamingAssistant(true);
+    // Add a placeholder assistant message for streaming (but don't show raw JSON)
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    let streamedContent = "";
     try {
-      const response = await APIService.getAIResponse(msgs);
-      
-      setMessages((prev) => [
-        ...prev,
-        { 
-          role: "assistant", 
-          content: response.conversation + (response.parseWarning ? "\n[Warning: Response was not valid JSON. Displayed best effort.]" : ""), 
-          data: response.conversationData 
+      streamedContent = await APIService.streamAIResponse(newMessages, (chunk) => {
+        // Do not update the message content with raw JSON while streaming
+      });
+      // After streaming, parse the full message for JSON and update state
+      let conversation = streamedContent;
+      let conversationData = null;
+      let parseWarning = false;
+      try {
+        const parsed = JSON.parse(streamedContent);
+        if (parsed.conversation) conversation = parsed.conversation;
+        if (parsed.data) conversationData = parsed;
+      } catch (e) {
+        // Regex fallback: extract largest JSON object from the response
+        const match = streamedContent.match(/\{[\s\S]*\}/);
+        if (match) {
+          try {
+            const parsed = JSON.parse(match[0]);
+            if (parsed.conversation) conversation = parsed.conversation;
+            if (parsed.data) conversationData = parsed;
+            parseWarning = true;
+          } catch (e2) {
+            parseWarning = true;
+          }
+        } else {
+          parseWarning = true;
         }
-      ]);
-      
-      if (response.conversationData) setLastData(response.conversationData);
+      }
+      setMessages((prev) => {
+        // Update the last assistant message with the parsed/cleaned content
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        if (updated[lastIdx]?.role === "assistant") {
+          updated[lastIdx] = {
+            ...updated[lastIdx],
+            content: conversation + (parseWarning ? "\n[Warning: Response was not valid JSON. Displayed best effort.]" : ""),
+            data: conversationData,
+          };
+        }
+        return updated;
+      });
+      if (conversationData) setLastData(conversationData);
     } catch (err) {
       console.error("❌ Error getting response:", err);
       setMessages((prev) => [
@@ -164,6 +253,8 @@ const ChatBox: React.FC = () => {
         { role: "assistant", content: "[Error connecting to backend]" },
       ]);
     }
+    setStreamingAssistant(false);
+    setLoading(false);
   };
 
   // Save feedback using the API service
@@ -211,6 +302,14 @@ const ChatBox: React.FC = () => {
             </div>
           </div>
         ))}
+        {/* Show 'Assistant is typing...' bubble if streaming */}
+        {streamingAssistant && (
+          <div className="flex justify-start">
+            <div className="px-4 py-2 rounded-2xl max-w-[70%] text-base shadow bg-white/80 text-indigo-900 border border-indigo-200 italic opacity-80">
+              Assistant is typing...
+            </div>
+          </div>
+        )}
         <div ref={chatEndRef} />
         {feedbackSaved && (
           <div className="text-center text-green-400 font-semibold mt-8">Feedback saved! Thank you.</div>

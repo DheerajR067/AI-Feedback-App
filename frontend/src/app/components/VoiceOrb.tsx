@@ -98,39 +98,30 @@ const VoiceOrb: React.FC<VoiceOrbProps> = ({ startParam }) => {
     };
   }, []);
 
-  // Cleanup on component unmount
+  // Cleanup on component unmount and navigation
   useEffect(() => {
-    return () => {
+    const stopAllVoice = () => {
       voiceServiceRef.current?.stop();
-    };
-  }, []);
-
-  // Handle page visibility changes and navigation
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      voiceServiceRef.current?.stop();
-    };
-
-    const handlePopState = () => {
-      voiceServiceRef.current?.stop();
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        voiceServiceRef.current?.stop();
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
       }
     };
 
     // Add event listeners
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('popstate', handlePopState);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', stopAllVoice);
+    window.addEventListener('popstate', stopAllVoice);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stopAllVoice();
+    });
 
-    // Cleanup event listeners
+    // Cleanup on unmount
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.removeEventListener('popstate', handlePopState);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      stopAllVoice();
+      window.removeEventListener('beforeunload', stopAllVoice);
+      window.removeEventListener('popstate', stopAllVoice);
+      document.removeEventListener('visibilitychange', () => {
+        if (document.hidden) stopAllVoice();
+      });
     };
   }, []);
 
@@ -216,9 +207,10 @@ const VoiceOrb: React.FC<VoiceOrbProps> = ({ startParam }) => {
 
   // Process API response (extracted to avoid closure issues)
   const processAPIResponse = async (newConversation: Message[], userMessage: Message) => {
+    setVoiceState("processing");
     try {
       // Get response using the same API service as ChatBox
-      const response = await APIService.getAIResponse(newConversation);
+      const response = await APIService.getVoiceAIResponse(newConversation);
       
       const assistantMessage: Message = {
         role: "assistant",
@@ -245,26 +237,23 @@ const VoiceOrb: React.FC<VoiceOrbProps> = ({ startParam }) => {
           await saveFeedback(updatedConversation, response.conversationData);
           
           // Speak the final message and redirect
+          setVoiceState("speaking");
           voiceServiceRef.current?.speakText(response.conversation, () => {
             console.log("🗣️ Voice Mode - Final message speaking completed");
             setTimeout(() => {
               router.push("/");
             }, 2000);
           });
-        } else {
-          // Continue conversation - speak the response
-          // The voice service will automatically switch to listening after speaking
-          voiceServiceRef.current?.speakText(response.conversation, () => {
-            console.log("🗣️ Voice Mode - Response speaking completed");
-          });
+          return;
         }
       }
+      setVoiceState("speaking");
+      voiceServiceRef.current?.speakText(response.conversation, handleTTSComplete);
     } catch (error) {
+      setVoiceState("processing");
       console.log("💥 Voice Mode - API Error:", error);
       // On error, speak error message and continue listening
-      voiceServiceRef.current?.speakText("I'm sorry, I encountered an error. Please try again.", () => {
-        console.log("🗣️ Voice Mode - Error message speaking completed");
-      });
+      voiceServiceRef.current?.speakText("I'm sorry, I encountered an error. Please try again.", handleTTSComplete);
     }
   };
 
@@ -282,6 +271,7 @@ const VoiceOrb: React.FC<VoiceOrbProps> = ({ startParam }) => {
 
   // Start the conversation with dynamic greeting
   const startConversation = async () => {
+    setVoiceState("processing");
     console.log("🎤 Voice Mode - Starting Conversation");
     
     try {
@@ -296,7 +286,7 @@ const VoiceOrb: React.FC<VoiceOrbProps> = ({ startParam }) => {
         timestamp: new Date().toISOString()
       });
       
-      const response = await APIService.getAIResponse(initialMessages);
+      const response = await APIService.getVoiceAIResponse(initialMessages);
       
       const assistantMessage: Message = {
         role: "assistant",
@@ -311,19 +301,18 @@ const VoiceOrb: React.FC<VoiceOrbProps> = ({ startParam }) => {
       }
       
       // Speak the greeting
-      voiceServiceRef.current?.speakText(response.conversation, () => {
-        console.log("🗣️ Voice Mode - Initial greeting speaking completed");
-      });
+      setVoiceState("speaking");
+      voiceServiceRef.current?.speakText(response.conversation, handleTTSComplete);
       
       // Start the voice service
       voiceServiceRef.current?.start();
     } catch (error) {
+      setVoiceState("processing");
       console.log("💥 Voice Mode - Initial Call Error:", error);
       // Fallback greeting
       const fallbackGreeting = "Hi! Welcome to LEGOLAND Discovery Center Toronto! I'd love to hear about your experience today. How would you rate your overall visit on a scale of 1 to 10?";
-      voiceServiceRef.current?.speakText(fallbackGreeting, () => {
-        console.log("🗣️ Voice Mode - Fallback greeting speaking completed");
-      });
+      setVoiceState("speaking");
+      voiceServiceRef.current?.speakText(fallbackGreeting, handleTTSComplete);
       voiceServiceRef.current?.start();
     }
   };
@@ -332,6 +321,18 @@ const VoiceOrb: React.FC<VoiceOrbProps> = ({ startParam }) => {
   const toggleMute = () => {
     setIsMuted(!isMuted);
     voiceServiceRef.current?.toggleMute();
+  };
+
+  // Modified: After TTS ends, handle mute/listening logic
+  const handleTTSComplete = () => {
+    if (!isMuted) {
+      setVoiceState("listening");
+      voiceServiceRef.current?.startListening();
+    } else {
+      setVoiceState("processing");
+      // Optionally, inform the model/user that mic is muted
+      // You can add logic here to send a message to the model if needed
+    }
   };
 
   const formatDuration = (seconds: number) => {

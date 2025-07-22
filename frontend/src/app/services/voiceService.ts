@@ -264,7 +264,8 @@ export class VoiceService {
     
     if (this.isMuted) {
       this.stopListening();
-      this.stopSpeech();
+      // Do NOT stop speech synthesis when muting
+      // this.stopSpeech();
       if (this.autoRestartTimeout) {
         clearTimeout(this.autoRestartTimeout);
         this.autoRestartTimeout = null;
