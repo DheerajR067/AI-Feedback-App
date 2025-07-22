@@ -1,10 +1,12 @@
-# LEGOLAND Discovery Center Toronto Feedback App
+# AI Feedback App
 
-A modern feedback collection application designed for LEGOLAND Discovery Center Toronto, featuring both text-based chat and voice interaction modes.
+A general purpose AI-powered feedback collection application. As a use case example, this project demonstrates its deployment for LEGOLAND Discovery Center Toronto, but it is designed to be adaptable for any organization or event.
 
 ## 🎯 Overview
 
-This application provides an interactive feedback collection system for visitors to LEGOLAND Discovery Center Toronto. It offers two distinct interaction modes:
+This application provides an interactive feedback collection system that can be tailored for various venues, events, or organizations. The included example is for LEGOLAND Discovery Center Toronto, but the system is built to be flexible and extensible for other use cases.
+
+It offers two distinct interaction modes:
 
 - **Chat Mode**: Text-based conversation interface
 - **Voice Mode**: Voice-activated interaction with speech synthesis
@@ -181,10 +183,6 @@ The application systematically collects feedback on:
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
